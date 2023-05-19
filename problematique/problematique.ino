@@ -4,6 +4,7 @@
 #define DEVICE_ADDRESS 0x77
 #define NUMBER_COEFFICIENTS 18
 #define KT 7864320.0f
+#define LIGHT_PORT 34
 
 
 std::vector<int32_t> coefficients;
@@ -86,8 +87,8 @@ float i2cTemperature() {
   // Calculate real temperature 
   float t_raw_sc = (float) t_raw / KT;
 
-  Serial.printf("t_raw %f\n", t_raw);
-  Serial.printf("t_raw_sc %f\n", t_raw_sc);
+  // Serial.printf("t_raw %f\n", t_raw);
+  // Serial.printf("t_raw_sc %f\n", t_raw_sc);
 
   return t_raw_sc;
 }
@@ -112,8 +113,8 @@ float i2cPressure(float t_raw_sc) {
   // Calculate real pressure 
   int p_raw_sc = p_raw / KT;
 
-  Serial.printf("p_raw %f\n", p_raw);
-  Serial.printf("p_raw_sc %f\n", p_raw_sc);
+  // Serial.printf("p_raw %f\n", p_raw);
+  // Serial.printf("p_raw_sc %f\n", p_raw_sc);
 
   return coefficients[2] + p_raw_sc * (coefficients[3] + p_raw_sc * (coefficients[6] + p_raw_sc * coefficients[8])) + t_raw_sc * coefficients[4] + t_raw_sc * p_raw_sc * (coefficients[5] + p_raw_sc * coefficients[7]);
 }
@@ -127,7 +128,7 @@ void i2cSensor() {
   float t_raw_sc = i2cTemperature();
   float t_comp = coefficients[0] * 0.5f + (float) coefficients[1] * t_raw_sc;
 
-  Serial.printf("Temperature %f C\n", t_comp);
+  // Serial.printf("Temperature %f C\n", t_comp);
 
   Wire.beginTransmission(DEVICE_ADDRESS);
   Wire.write(0x08);
@@ -136,7 +137,12 @@ void i2cSensor() {
 
   float p_comp = i2cPressure(t_raw_sc);
 
-  Serial.printf("Pressure %f Pa\n", p_comp);
+  // Serial.printf("Pressure %f Pa\n", p_comp);
+}
+
+void lightSensor() {
+  int light = analogRead(LIGHT_PORT);
+  Serial.printf("Ensoleillement %d\n", light);
 }
 
 void setup() {
@@ -148,7 +154,10 @@ void setup() {
 }
 
 void loop() {
+  // Temperature et pression
   i2cSensor();
+  // Ensoleillement
+  lightSensor();
 
   delay(500);
 }
