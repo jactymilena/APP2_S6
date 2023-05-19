@@ -1,61 +1,124 @@
 // I2C Library
 #include <Wire.h>
+#include <vector>
 #define DEVICE_ADDRESS 0x77
+#define NUMBER_COEFFICIENTS 18
+#define KT 7864320.0f
 
 
+std::vector<int32_t> coefficients;
 
-void read_coefficients(uint8_t *buffer) {
-  
-  uint16_t c0 = buffer[0] << 4 | ((buffer[1] >> 4) & 0x0F);
-  uint16_t c1 = ((buffer[1] & 0x0F) << 8) | buffer[2];
-  uint32_t c00 = buffer[3] << 12 | buffer[4] << 4 | ((buffer[5] >> 4) & 0x0F); 
-  uint32_t c10 = ((buffer[5] & 0x0F) << 16) | buffer[6] << 8 | buffer[7];
-  uint16_t c01 = buffer[8] << 8 | buffer[9];
-  uint16_t c11 = buffer[10] << 8 | buffer[11];
-  uint16_t c20 = buffer[12] << 8 | buffer[13];
-  uint16_t c21 = buffer[14] << 8 | buffer[15];
-  uint16_t c30 = buffer[16] << 8 | buffer[17];
 
-  Serial.printf("c0 %u\n", c0);
-  Serial.printf("c1 %u\n", c1);
-  Serial.printf("c00 %u\n", c00);
-  Serial.printf("c10 %u\n", c10);
-  Serial.printf("c01 %u\n", c01);
-  Serial.printf("c11 %u\n", c11);
-  Serial.printf("c20 %u\n", c20);
-  Serial.printf("c21 %u\n", c21);
-  Serial.printf("c30 %u\n", c30);
+void readCoefficients(uint8_t *buffer) {
+  // ajout d'un check pour les chiffres negatifs (C1 devrait toujours etre negatif)
+
+  coefficients.push_back(checkNegative(buffer[0] << 4 | ((buffer[1] >> 4) & 0x0F), 12));                     // c0
+  coefficients.push_back(checkNegative((((buffer[1] & 0x0F) << 8) | buffer[2]), 12));                        // c1
+  coefficients.push_back(checkNegative(buffer[3] << 12 | buffer[4] << 4 | ((buffer[5] >> 4) & 0x0F), 20));   // c00
+  coefficients.push_back(checkNegative(((buffer[5] & 0x0F) << 16) | buffer[6] << 8 | buffer[7], 20));         // c10
+
+  for(int i = 8; i < NUMBER_COEFFICIENTS - 1; i+=2) // c01, c11, c20, c21, c30
+    coefficients.push_back(checkNegative(buffer[i] << 8 | buffer[i + 1], 16)); 
+
+  for(int i = 0; i < coefficients.size(); i++)
+    Serial.printf("coefficients %d i %d\n", coefficients[i], i);
 }
 
 
+int32_t checkNegative(int32_t c, int nb_bits) {
+  if(c > pow(2, nb_bits - 1) - 1)
+    return c - pow(2, nb_bits);
+  return c;
+}
+
+void setupI2c() {
+  // Get calibration coefficients
+  Wire.beginTransmission(DEVICE_ADDRESS);
+  Wire.write(0x10);
+  Wire.endTransmission();
+
+  Wire.requestFrom(DEVICE_ADDRESS, NUMBER_COEFFICIENTS);  // request 17 bytes from slave 
+
+  int i = 0;
+  uint8_t buffer[NUMBER_COEFFICIENTS];
+  while(Wire.available()) {   
+    buffer[i] = Wire.read();
+    i++;
+  }
+  readCoefficients(buffer);
+
+  // PRS_CFG
+  Wire.beginTransmission(DEVICE_ADDRESS);
+  Wire.write(0x06);
+  Wire.write(0x03 << 4 |  0x03);
+  Serial.printf("PRS_CFG %u\n", 0x03 << 4 |  0x03);
+  Wire.endTransmission();
+
+  // TMP_CFG
+  Wire.beginTransmission(DEVICE_ADDRESS);
+  Wire.write(0x07);
+  Wire.write( 0x01 << 7 | 0x03 << 4 |  0x03);
+  Wire.endTransmission();
+
+  // CFG_REG
+  // Wire.beginTransmission(DEVICE_ADDRESS);
+  // Wire.write(0x09);
+  // Wire.write( 0x00 << 7 | 0x00 << 6  | 0x00 << 5 | 0x00 << 4 | 0x00 << 3 | 0x00 << 2 | 0x00 << 1 | 0x00);
+  // Wire.endTransmission();
+}
+
+float i2cTemperature() {
+  // Get temperature values
+  Wire.beginTransmission(DEVICE_ADDRESS);
+  Wire.write(0x03);
+  Wire.endTransmission();
+
+  Wire.requestFrom(DEVICE_ADDRESS, 3);  // request 3 bytes from slave 
+
+  int i = 0;
+  
+  int8_t tmp[3];
+  while(Wire.available()) {   
+    tmp[i] = Wire.read();
+    i++;
+  }
+
+  int t_raw = checkNegative(tmp[0] << 16 | tmp[1] << 8 | tmp[2], 24);
+  
+  // Calculate real temperature 
+  float t_raw_sc = (float) t_raw / KT;
+
+  Serial.printf("t_raw %f\n", t_raw);
+  Serial.printf("t_raw_sc %f\n", (float) t_raw_sc);
+
+  return (float) coefficients[0] * 0.5f + (float) coefficients[1] * t_raw_sc;
+}
+
+void i2cSensor() {
+  Wire.beginTransmission(DEVICE_ADDRESS);
+  Wire.write(0x08);
+  Wire.write(0x02);
+  Wire.endTransmission();
+
+  float t_comp = i2cTemperature();
+  Serial.printf("Temperature %f\n", t_comp);
+
+  // Wire.beginTransmission(DEVICE_ADDRESS);
+  // Wire.write(0x08);
+  // Wire.write(0x02);
+  // Wire.endTransmission();
+}
 
 void setup() {
   // put your setup code here, to run once:
   Wire.begin();                // join i2c bus as master
   Serial.begin(115200);        // start serial for output
 
-  // Get calibration coefficients
-  Wire.beginTransmission(DEVICE_ADDRESS);
-  Wire.write(0x10);
-  Wire.endTransmission();
-
-  Wire.requestFrom(DEVICE_ADDRESS, 17);  // request 17 bytes from slave 
-
-  int i = 0;
-  uint8_t buffer[17];
-  while(Wire.available()) {   
-    buffer[i] = Wire.read();
-    i++;
-  }
-  read_coefficients(buffer);
-
+  setupI2c();
 }
 
 void loop() {
-
-  // Wire.beginTransmission(0x77);
-  // Wire.write(0x06);
-
+  i2cSensor();
 
   delay(500);
 }
