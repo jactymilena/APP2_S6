@@ -4,7 +4,10 @@
 #define DEVICE_ADDRESS 0x77
 #define NUMBER_COEFFICIENTS 18
 #define KT 7864320.0f
-#define LIGHT_PORT 34
+#define LIGHT_PIN 34
+#define RAIN_PIN 21
+#define WIND_DIRECTION_PIN 35
+#define WIND_SPEED_PIN 27
 
 
 std::vector<int32_t> coefficients;
@@ -141,8 +144,23 @@ void i2cSensor() {
 }
 
 void lightSensor() {
-  int light = analogRead(LIGHT_PORT);
-  Serial.printf("Ensoleillement %d\n", light);
+  int light = analogRead(LIGHT_PIN);
+  // Serial.printf("Ensoleillement %d\n", light);
+}
+
+void rainSensor() {
+  int rain = analogRead(RAIN_PIN);
+  // Serial.printf("Pluie %d\n", rain);
+}
+
+void windDirectionSensor() {
+  int direction = analogRead(WIND_DIRECTION_PIN);
+  Serial.printf("Direction du vent %d\n", direction);
+}
+
+void windSpeedSensor() {
+  int speed = analogRead(WIND_SPEED_PIN);
+  Serial.printf("Vitesse du vent %d\n", speed);
 }
 
 void setup() {
@@ -158,6 +176,12 @@ void loop() {
   i2cSensor();
   // Ensoleillement
   lightSensor();
+  // Pluie
+  rainSensor();
+  // Direction du vent
+  windDirectionSensor();
+  // Vitesse du vent
+  windSpeedSensor();
 
   delay(500);
 }
