@@ -5,10 +5,11 @@
 #define NUMBER_COEFFICIENTS 18
 #define KT 7864320.0f
 #define LIGHT_PIN 34
-#define RAIN_PIN 21
+#define RAIN_PIN 23
 #define WIND_DIRECTION_PIN 35
 #define WIND_SPEED_PIN 27
-
+#define RAIN_CST 0.2794f
+int nb_contact = 0;
 
 std::vector<int32_t> coefficients;
 
@@ -24,8 +25,8 @@ void readCoefficients(uint8_t *buffer) {
   for(int i = 8; i < NUMBER_COEFFICIENTS - 1; i+=2) // c01, c11, c20, c21, c30
     coefficients.push_back(checkNegative(buffer[i] << 8 | buffer[i + 1], 16)); 
 
-  for(int i = 0; i < coefficients.size(); i++)
-    Serial.printf("coefficients %d i %d\n", coefficients[i], i);
+  // for(int i = 0; i < coefficients.size(); i++)
+  //   Serial.printf("coefficients %d i %d\n", coefficients[i], i);
 }
 
 
@@ -55,7 +56,7 @@ void setupI2c() {
   Wire.beginTransmission(DEVICE_ADDRESS);
   Wire.write(0x06);
   Wire.write(0x03 << 4 |  0x03);
-  Serial.printf("PRS_CFG %u\n", 0x03 << 4 |  0x03);
+  // Serial.printf("PRS_CFG %u\n", 0x03 << 4 |  0x03);
   Wire.endTransmission();
 
   // TMP_CFG
@@ -148,19 +149,30 @@ void lightSensor() {
   // Serial.printf("Ensoleillement %d\n", light);
 }
 
-void rainSensor() {
-  int rain = analogRead(RAIN_PIN);
-  // Serial.printf("Pluie %d\n", rain);
+void setUpRainSensor() {
+  pinMode(RAIN_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(RAIN_PIN), incrementNbContact, RISING);
+}
+
+void incrementNbContact(){
+  nb_contact ++;
+  // Serial.printf("incre %d\n", nb_contact);
+}
+
+float rainGauge(){
+  float rain = nb_contact * RAIN_CST;
+  // Serial.printf("rain %f\n", rain);
+  return rain; 
 }
 
 void windDirectionSensor() {
   int direction = analogRead(WIND_DIRECTION_PIN);
-  Serial.printf("Direction du vent %d\n", direction);
+  // Serial.printf("Direction du vent %d\n", direction);
 }
 
 void windSpeedSensor() {
   int speed = analogRead(WIND_SPEED_PIN);
-  Serial.printf("Vitesse du vent %d\n", speed);
+  // Serial.printf("Vitesse du vent %d\n", speed);
 }
 
 void setup() {
@@ -169,6 +181,8 @@ void setup() {
   Serial.begin(115200);        // start serial for output
 
   setupI2c();
+  // Pluie
+  setUpRainSensor();
 }
 
 void loop() {
@@ -177,7 +191,7 @@ void loop() {
   // Ensoleillement
   lightSensor();
   // Pluie
-  rainSensor();
+  rainGauge();
   // Direction du vent
   windDirectionSensor();
   // Vitesse du vent
