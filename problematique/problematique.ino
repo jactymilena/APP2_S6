@@ -166,8 +166,35 @@ float rainGauge(){
 }
 
 void windDirectionSensor() {
-  int direction = analogRead(WIND_DIRECTION_PIN);
-  // Serial.printf("Direction du vent %d\n", direction);
+  int val = analogRead(WIND_DIRECTION_PIN);
+  float voltage = (val*3.3)/4096;
+  // Serial.printf("voltage %f\n", voltage);
+  if(voltage >= 2.09 && voltage <= 2.39){
+    Serial.println("NORD");
+  }
+  else if(voltage >= 1.15 && voltage <= 1.34){
+    Serial.println("NORD-EST");
+  }
+  else if(voltage >= 0.08 && voltage <= 0.17){
+    Serial.println("EST");
+  }
+  else if(voltage >= 0.44 && voltage <= 0.47){
+    Serial.println("SUD-EST");
+  }
+  else if(voltage >= 0.27 && voltage <= 0.78){
+    Serial.println("SUD");
+  }
+  else if(voltage >= 1.76 && voltage <= 1.87){
+    Serial.println("SUD-OUEST");
+  }
+  else if(voltage >= 3.09 && voltage <= 3.12){
+    Serial.println("OUEST");
+  }
+  else if(voltage >= 2.52 && voltage <= 2.81){
+    Serial.println("NORD-OUEST");
+  }
+  else
+  Serial.println("AUTRES THE FUCK");
 }
 
 void windSpeedSensor() {
