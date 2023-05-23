@@ -1,6 +1,9 @@
 // I2C Library
 #include <Wire.h>
 #include <vector>
+#include "BLEDevice.h"
+
+
 #define DEVICE_ADDRESS 0x77
 #define NUMBER_COEFFICIENTS 18
 #define KT 7864320.0f
@@ -10,9 +13,119 @@
 #define WIND_SPEED_PIN 27
 #define RAIN_CST 0.2794f
 #define WIND_SPEED_REF 2.4
-int nb_contact = 0;
 
+int                  nb_contact = 0;
 std::vector<int32_t> coefficients;
+
+static BLEUUID       serviceUUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
+static BLEUUID       charUUID("6E400002-B5A3-F393-E0A9-E50E24DCCA9E");
+
+static boolean doConnect = false;
+static boolean connected = false;
+static boolean doScan = false;
+static BLERemoteCharacteristic* pRemoteCharacteristic;
+static BLEAdvertisedDevice* myDevice;
+
+
+static void notifyCallback(
+  BLERemoteCharacteristic* pBLERemoteCharacteristic,
+  uint8_t* pData,
+  size_t length,
+  bool isNotify) {
+    Serial.print("Notify callback for characteristic ");
+    Serial.print(pBLERemoteCharacteristic->getUUID().toString().c_str());
+    Serial.print(" of data length ");
+    Serial.println(length);
+    Serial.print("data: ");
+    Serial.write(pData, length);
+    Serial.println();
+}
+
+class MyClientCallback : public BLEClientCallbacks {
+  void onConnect(BLEClient* pclient) {
+  }
+
+  void onDisconnect(BLEClient* pclient) {
+    connected = false;
+    Serial.println("onDisconnect");
+  }
+};
+
+
+bool connectToServer() {
+    Serial.print("Forming a connection to ");
+    Serial.println(myDevice->getAddress().toString().c_str());
+    
+    BLEClient*  pClient  = BLEDevice::createClient();
+    Serial.println(" - Created client");
+
+    pClient->setClientCallbacks(new MyClientCallback());
+
+    // Connect to the remove BLE Server.
+    pClient->connect(myDevice);  // if you pass BLEAdvertisedDevice instead of address, it will be recognized type of peer device address (public or private)
+    Serial.println(" - Connected to server");
+    pClient->setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
+  
+    // Obtain a reference to the service we are after in the remote BLE server.
+    BLERemoteService* pRemoteService = pClient->getService(serviceUUID);
+    if (pRemoteService == nullptr) {
+      Serial.print("Failed to find our service UUID: ");
+      Serial.println(serviceUUID.toString().c_str());
+      pClient->disconnect();
+      return false;
+    }
+    Serial.println(" - Found our service");
+
+
+    // Obtain a reference to the characteristic in the service of the remote BLE server.
+    pRemoteCharacteristic = pRemoteService->getCharacteristic(charUUID);
+    if (pRemoteCharacteristic == nullptr) {
+      Serial.print("Failed to find our characteristic UUID: ");
+      Serial.println(charUUID.toString().c_str());
+      pClient->disconnect();
+      return false;
+    }
+    Serial.println(" - Found our characteristic");
+
+    // Read the value of the characteristic.
+    if(pRemoteCharacteristic->canRead()) {
+      std::string value = pRemoteCharacteristic->readValue();
+      Serial.print("The characteristic value was: ");
+      Serial.println(value.c_str());
+    }
+
+    if(pRemoteCharacteristic->canNotify())
+      pRemoteCharacteristic->registerForNotify(notifyCallback);
+
+    connected = true;
+    return true;
+}
+
+/**
+ * Scan for BLE servers and find the first one that advertises the service we are looking for.
+ */
+class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+ /**
+   * Called for each advertising BLE server.
+   */
+  void onResult(BLEAdvertisedDevice advertisedDevice) {
+    Serial.print("BLE Advertised Device found: ");
+    Serial.println(advertisedDevice.toString().c_str());
+
+    // We have found a device, let us now see if it contains the service we are looking for.
+
+    if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
+      Serial.print("Found our server ");
+
+      BLEDevice::getScan()->stop();
+      myDevice = new BLEAdvertisedDevice(advertisedDevice);
+      doConnect = true;
+      doScan = true;
+
+
+    } // Found our server
+  } // onResult
+}; // MyAdvertisedDeviceCallbacks
 
 
 void readCoefficients(uint8_t *buffer) {
@@ -133,7 +246,7 @@ void i2cSensor() {
   float t_raw_sc = i2cTemperature();
   float t_comp = coefficients[0] * 0.5f + (float)coefficients[1] * t_raw_sc;
 
-  // Serial.printf("Temperature %f C\n", t_comp);
+  Serial.printf("Temperature %f C\n", t_comp);
 
   Wire.beginTransmission(DEVICE_ADDRESS);
   Wire.write(0x08);
@@ -142,12 +255,11 @@ void i2cSensor() {
 
   float p_comp = i2cPressure(t_raw_sc);
 
-  // Serial.printf("Pressure %f Pa\n", p_comp);
+  Serial.printf("Pressure %f Pa\n", p_comp);
 }
 
-void lightSensor() {
-  int light = analogRead(LIGHT_PIN);
-  // Serial.printf("Ensoleillement %d\n", light);
+int lightSensor() {
+  return analogRead(LIGHT_PIN);  
 }
 
 void setUpRainSensor() {
@@ -157,44 +269,33 @@ void setUpRainSensor() {
 
 void incrementNbContact() {
   nb_contact++;
-  // Serial.printf("incre %d\n", nb_contact);
 }
 
 float rainGauge() {
-  float rain = nb_contact * RAIN_CST;
-  // Serial.printf("rain %f\n", rain);
-  return rain;
+  return nb_contact * RAIN_CST;
 }
 
-void windDirectionSensor() {
+std::string windDirectionSensor() {
   int val = analogRead(WIND_DIRECTION_PIN);
   float voltage = (val * 3.3) / 4096;
-  // Serial.printf("voltage %f\n", voltage);
-  if (voltage >= 2.09 && voltage <= 2.39) {
-    Serial.println("NORD");
-  } else if (voltage >= 1.15 && voltage <= 1.34) {
-    Serial.println("NORD-EST");
-  } else if (voltage >= 0.08 && voltage <= 0.17) {
-    Serial.println("EST");
-  } else if (voltage >= 0.44 && voltage <= 0.47) {
-    Serial.println("SUD-EST");
-  } else if (voltage >= 0.27 && voltage <= 0.78) {
-    Serial.println("SUD");
-  } else if (voltage >= 1.76 && voltage <= 1.87) {
-    Serial.println("SUD-OUEST");
-  } else if (voltage >= 3.09 && voltage <= 3.12) {
-    Serial.println("OUEST");
-  } else if (voltage >= 2.52 && voltage <= 2.81) {
-    Serial.println("NORD-OUEST");
-  } else
-    Serial.println("AUTRES THE FUCK");
+
+  if (voltage >= 2.09 && voltage <= 2.39)       return "NORD";
+  else if (voltage >= 1.15 && voltage <= 1.34)  return "NORD-EST";
+  else if (voltage >= 0.08 && voltage <= 0.17)  return "EST";
+  else if (voltage >= 0.44 && voltage <= 0.47)  return "SUD-EST";
+  else if (voltage >= 0.27 && voltage <= 0.78)  return "SUD";
+  else if (voltage >= 1.76 && voltage <= 1.87)  return "SUD-OUEST";
+  else if (voltage >= 3.09 && voltage <= 3.12)  return "OUEST";
+  else if (voltage >= 2.52 && voltage <= 2.81)  return "NORD-OUEST";
+  else                                          return "OTHER";
 }
 
-void windSpeedSensor() {
+float windSpeedSensor() {
   int last_val = analogRead(WIND_SPEED_PIN);
   int cpt = 0;
   float init_time = millis();
   int curr_val = 0;
+
   while (millis() < (init_time + 1000)) {
     curr_val = analogRead(WIND_SPEED_PIN);
     if (curr_val != last_val) {
@@ -202,8 +303,31 @@ void windSpeedSensor() {
       last_val = curr_val;
     }
   }
-  float speed = WIND_SPEED_REF * cpt;
-  Serial.printf("Vitesse du vent %f\n", speed);
+  return WIND_SPEED_REF * cpt;
+}
+
+
+void setupBLE() {
+  Serial.println("Starting Arduino BLE Client application...");
+  BLEDevice::init("");
+
+  BLEScan* pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setInterval(1349);
+  pBLEScan->setWindow(449);
+  pBLEScan->setActiveScan(true);
+  pBLEScan->start(5, false);
+}
+
+void checkServerConnection() {
+  if (doConnect == true) {
+    if (connectToServer()) {
+      Serial.println("We are now connected to the BLE Server.");
+    } else {
+      Serial.println("We have failed to connect to the server; there is nothin more we will do.");
+    }
+    doConnect = false;
+  }
 }
 
 void setup() {
@@ -211,26 +335,42 @@ void setup() {
   Wire.begin();          // join i2c bus as master
   Serial.begin(115200);  // start serial for output
 
+  setupBLE();
   setupI2c();
-  // Pluie
   setUpRainSensor();
 }
 
 void loop() {
+  checkServerConnection();
+
+
+    if (connected) {
+    String newValue = "Hello its me Time since boot: " + String(millis()/1000);
+    Serial.println("Setting new characteristic value to \"" + newValue + "\"");
+    
+    // Set the characteristic's value to be the array of bytes that is actually a string.
+    pRemoteCharacteristic->writeValue(newValue.c_str(), newValue.length());
+  }
+
   // Temperature et pression
-  i2cSensor();
+  // i2cSensor();
 
   // Ensoleillement
-  lightSensor();
+  int light = lightSensor();
 
   // Pluie
-  rainGauge();
+  float rain = rainGauge();
 
   // Direction du vent
-  // windDirectionSensor();
+  std::string windDirection = windDirectionSensor();
 
   // Vitesse du vent
-  windSpeedSensor();
+  float windSpeed = windSpeedSensor();
+
+  Serial.printf("Ensoleillement %d\n", light);
+  Serial.printf("Pluie %f\n", rain);
+  Serial.printf("Direction du vent %s\n", windDirection.c_str());
+  Serial.printf("Vitesse du vent %f\n", windSpeed);
 
   delay(500);
 }
