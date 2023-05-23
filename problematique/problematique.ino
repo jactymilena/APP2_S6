@@ -17,6 +17,7 @@
 int                  nb_contact = 0;
 std::vector<int32_t> coefficients;
 
+
 static BLEUUID       serviceUUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
 static BLEUUID       charUUID("6E400002-B5A3-F393-E0A9-E50E24DCCA9E");
 
@@ -26,13 +27,51 @@ static boolean doScan = false;
 static BLERemoteCharacteristic* pRemoteCharacteristic;
 static BLEAdvertisedDevice* myDevice;
 
-
 struct I2cResponse {
   float temperature;
   float pressure;
 
+  I2cResponse(const I2cResponse& res) : temperature(res.temperature), pressure(res.pressure) {}
   I2cResponse(float temp, float press) : temperature(temp), pressure(press) {}
 };
+
+bool operator==(const I2cResponse& r1, const I2cResponse& r2)
+{
+  return (r1.pressure == r2.pressure) && (r1.temperature == r2.temperature);
+}
+
+struct MeteoStationValues {
+  I2cResponse i2cRes;
+  int light;
+  float rain;
+  std::string windDirection;
+  float windSpeed;
+
+  MeteoStationValues(I2cResponse res, int l, float r, std::string wDir, float wSpeed) : i2cRes(res), light(l), rain(r), windDirection(wDir), windSpeed(wSpeed)  {}
+
+  MeteoStationValues& operator =(const MeteoStationValues& m)
+  {
+      i2cRes.pressure = m.i2cRes.pressure;
+      i2cRes.temperature = m.i2cRes.temperature;
+      light = m.light;
+      rain = m.rain;
+      windDirection = m.windDirection;
+      windSpeed = m.windSpeed;
+
+      return *this;
+  }
+};
+
+bool operator==(const MeteoStationValues& m1, const MeteoStationValues& m2)
+{
+    return (m1.i2cRes == m2.i2cRes) &&
+           (m1.light == m2.light) &&
+           (m1.rain == m2.rain) &&
+           (m1.windDirection == m2.windDirection) &&
+           (m1.windSpeed == m2.windSpeed);
+}
+
+MeteoStationValues lastStationValues(I2cResponse(0, 0), 0, 0, "NORD", 0);
 
 static void notifyCallback(
   BLERemoteCharacteristic* pBLERemoteCharacteristic,
@@ -342,44 +381,27 @@ void setup() {
 void loop() {
   checkServerConnection();
 
-
   if (connected) {
-    String newValue = "Hello its me Time since boot: " + String(millis()/1000);
-    Serial.println("Setting new characteristic value to \"" + newValue + "\"");
+    I2cResponse i2cRes = i2cSensor();
+    int light = lightSensor();
+    float rain = rainGauge();
+    std::string windDirection = windDirectionSensor();
+    float windSpeed = windSpeedSensor();
+
+    MeteoStationValues currStationValues(i2cRes, light, rain, windDirection, windSpeed);
+
+    if(!(lastStationValues == currStationValues)) {
+      std::string sendVal = "\nEnsoleillement : " + std::to_string(light) + 
+                            "\nPluie : " + std::to_string(rain) + " mm" + 
+                            "\nDirection du vent : " + windDirection.c_str() + 
+                            "\nVitesse du vent : " + std::to_string(windSpeed) + " km/h" +
+                            "\nPressure : " + std::to_string(i2cRes.pressure) + " Pa" + 
+                            "\nTemperature : " + std::to_string(i2cRes.temperature) + " C\n";
     
-    // Set the characteristic's value to be the array of bytes that is actually a string.
-    pRemoteCharacteristic->writeValue(newValue.c_str(), newValue.length());
+      pRemoteCharacteristic->writeValue(sendVal.c_str(), sendVal.length());
+      lastStationValues = currStationValues;
+    }
   }
 
-  // Temperature et pression
-  I2cResponse i2cRes = i2cSensor();
-
-  // Ensoleillement
-  int light = lightSensor();
-
-  // Pluie
-  float rain = rainGauge();
-
-  // Direction du vent
-  std::string windDirection = windDirectionSensor();
-
-  // Vitesse du vent
-  float windSpeed = windSpeedSensor();
-
-  Serial.printf("Ensoleillement %d\n", light);
-  Serial.printf("Pluie %f\n", rain);
-  Serial.printf("Direction du vent %s\n", windDirection.c_str());
-  Serial.printf("Vitesse du vent %f\n", windSpeed);
-  Serial.printf("Pressure %f Pa\n", i2cRes.pressure); 
-  Serial.printf("Temperature %f C\n", i2cRes.temperature);
-
-  std::string sendVal = "Ensoleillement : " + std::to_string(light) + 
-                        "\nPluie : " + std::to_string(rain) + 
-                        "\nDirection du vent : " + windDirection.c_str() + 
-                        "\nVitesse du vent : " + std::to_string(windSpeed) +
-                        "\nPressure : " + std::to_string(i2cRes.pressure) + 
-                        "\nTemperature : " + std::to_string(i2cRes.temperature);
-  
-  pRemoteCharacteristic->writeValue(sendVal.c_str(), sendVal.length());
   delay(500);
 }
