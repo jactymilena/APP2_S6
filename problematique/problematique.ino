@@ -27,6 +27,13 @@ static BLERemoteCharacteristic* pRemoteCharacteristic;
 static BLEAdvertisedDevice* myDevice;
 
 
+struct I2cResponse {
+  float temperature;
+  float pressure;
+
+  I2cResponse(float temp, float press) : temperature(temp), pressure(press) {}
+};
+
 static void notifyCallback(
   BLERemoteCharacteristic* pBLERemoteCharacteristic,
   uint8_t* pData,
@@ -205,9 +212,6 @@ float i2cTemperature() {
   // Calculate real temperature
   float t_raw_sc = (float)t_raw / KT;
 
-  // Serial.printf("t_raw %f\n", t_raw);
-  // Serial.printf("t_raw_sc %f\n", t_raw_sc);
-
   return t_raw_sc;
 }
 
@@ -231,13 +235,10 @@ float i2cPressure(float t_raw_sc) {
   // Calculate real pressure
   int p_raw_sc = p_raw / KT;
 
-  // Serial.printf("p_raw %f\n", p_raw);
-  // Serial.printf("p_raw_sc %f\n", p_raw_sc);
-
   return coefficients[2] + p_raw_sc * (coefficients[3] + p_raw_sc * (coefficients[6] + p_raw_sc * coefficients[8])) + t_raw_sc * coefficients[4] + t_raw_sc * p_raw_sc * (coefficients[5] + p_raw_sc * coefficients[7]);
 }
 
-void i2cSensor() {
+I2cResponse i2cSensor() {
   Wire.beginTransmission(DEVICE_ADDRESS);
   Wire.write(0x08);
   Wire.write(0x02);
@@ -246,8 +247,6 @@ void i2cSensor() {
   float t_raw_sc = i2cTemperature();
   float t_comp = coefficients[0] * 0.5f + (float)coefficients[1] * t_raw_sc;
 
-  Serial.printf("Temperature %f C\n", t_comp);
-
   Wire.beginTransmission(DEVICE_ADDRESS);
   Wire.write(0x08);
   Wire.write(0x01);
@@ -255,7 +254,7 @@ void i2cSensor() {
 
   float p_comp = i2cPressure(t_raw_sc);
 
-  Serial.printf("Pressure %f Pa\n", p_comp);
+  return I2cResponse(t_comp, p_comp);
 }
 
 int lightSensor() {
@@ -344,7 +343,7 @@ void loop() {
   checkServerConnection();
 
 
-    if (connected) {
+  if (connected) {
     String newValue = "Hello its me Time since boot: " + String(millis()/1000);
     Serial.println("Setting new characteristic value to \"" + newValue + "\"");
     
@@ -353,7 +352,7 @@ void loop() {
   }
 
   // Temperature et pression
-  // i2cSensor();
+  I2cResponse i2cRes = i2cSensor();
 
   // Ensoleillement
   int light = lightSensor();
@@ -371,6 +370,16 @@ void loop() {
   Serial.printf("Pluie %f\n", rain);
   Serial.printf("Direction du vent %s\n", windDirection.c_str());
   Serial.printf("Vitesse du vent %f\n", windSpeed);
+  Serial.printf("Pressure %f Pa\n", i2cRes.pressure); 
+  Serial.printf("Temperature %f C\n", i2cRes.temperature);
 
+  std::string sendVal = "Ensoleillement : " + std::to_string(light) + 
+                        "\nPluie : " + std::to_string(rain) + 
+                        "\nDirection du vent : " + windDirection.c_str() + 
+                        "\nVitesse du vent : " + std::to_string(windSpeed) +
+                        "\nPressure : " + std::to_string(i2cRes.pressure) + 
+                        "\nTemperature : " + std::to_string(i2cRes.temperature);
+  
+  pRemoteCharacteristic->writeValue(sendVal.c_str(), sendVal.length());
   delay(500);
 }
