@@ -42,12 +42,6 @@ struct HumiditySensorResponse {
   HumiditySensorResponse(float temp, float hum) : temperature(temp), humidity(hum) {}
 };
 
-// bool operator==(const HumiditySensorResponse& r1, const HumiditySensorResponse& r2)
-// {
-//   return true;
-//   // return (r1.humidity == r2.humidity) && (r1.temperature == r2.temperature);
-// }
-
 struct I2cResponse {
   float temperature;
   float pressure;
@@ -83,6 +77,20 @@ struct MeteoStationValues {
       humidityRes.temperature = m.humidityRes.temperature;
 
       return *this;
+  }
+
+  std::string toString(){
+    return "\n ----------------- STATION METEO ----------------- "
+           "\n - Ensoleillement : " + std::to_string(light) + 
+           "\n - Pluie : " + std::to_string(rain) + " mm" + 
+           "\n - Direction du vent : " + windDirection.c_str() + 
+           "\n - Vitesse du vent : " + std::to_string(windSpeed) + " km/h" +
+           "\n - I2C :" +
+           "\n    - Pressure : " + std::to_string(i2cRes.pressure) + " Pa" + 
+           "\n    - Temperature : " + std::to_string(i2cRes.temperature) + " C" +
+           "\n - HUMIDITY SENSOR :" +
+           "\n    - Humidity : " + std::to_string(humidityRes.humidity) + " %RH" + 
+           "\n    - Temperature : " + std::to_string(humidityRes.temperature) + " C\n";
   }
 };
 
@@ -468,15 +476,7 @@ void loop() {
     MeteoStationValues currStationValues(i2cRes, light, rain, windDirection, windSpeed, humRes);
 
     if(!(lastStationValues == currStationValues)) {
-      std::string sendVal = "\nEnsoleillement : " + std::to_string(light) + 
-                            "\nPluie : " + std::to_string(rain) + " mm" + 
-                            "\nDirection du vent : " + windDirection.c_str() + 
-                            "\nVitesse du vent : " + std::to_string(windSpeed) + " km/h" +
-                            "\nPressure : " + std::to_string(i2cRes.pressure) + " Pa" + 
-                            "\nTemperature : " + std::to_string(i2cRes.temperature) + " C" +
-                            "\nHumidity : " + std::to_string(humRes.humidity) + " %RH" + 
-                            "\nTemperature : " + std::to_string(humRes.temperature) + " C\n";
-    
+      std::string sendVal = currStationValues.toString();
       pRemoteCharacteristic->writeValue(sendVal.c_str(), sendVal.length());
       lastStationValues = currStationValues;
     }
