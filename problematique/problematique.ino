@@ -21,8 +21,10 @@
 #define RAIN_CST 0.2794f
 #define WIND_SPEED_REF 2.4
 
-int                  nb_contact = 0;
+
+int nb_contact = 0;
 std::vector<int32_t> coefficients;
+float lastRainInterrupt = 0;
 
 
 static BLEUUID       serviceUUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
@@ -330,7 +332,7 @@ I2cResponse i2cSensor() {
 }
 
 int lightSensor() {
-  return analogRead(LIGHT_PIN);  
+  return analogRead(LIGHT_PIN);
 }
 
 void setUpRainSensor() {
@@ -339,10 +341,16 @@ void setUpRainSensor() {
 }
 
 void incrementNbContact() {
-  nb_contact++;
+  if (millis() - lastRainInterrupt > 100) {
+    nb_contact++;
+    lastRainInterrupt = millis();
+  } 
+    // nb_contact = 0;
 }
 
 float rainGauge() {
+  if (millis() - lastRainInterrupt > 1500) 
+    nb_contact = 0;
   return nb_contact * RAIN_CST;
 }
 
@@ -477,7 +485,8 @@ void loop() {
 
     if(!(lastStationValues == currStationValues)) {
       std::string sendVal = currStationValues.toString();
-      pRemoteCharacteristic->writeValue(sendVal.c_str(), sendVal.length());
+      Serial.println(sendVal.c_str());
+      if(connected) pRemoteCharacteristic->writeValue(sendVal.c_str(), sendVal.length());
       lastStationValues = currStationValues;
     }
   }
