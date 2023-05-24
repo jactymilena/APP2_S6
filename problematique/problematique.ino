@@ -1,3 +1,10 @@
+/*
+* Meteo Station
+* authors : Jacty Saenz, saej3101
+*           Laurence Milette, mill3003
+*/
+
+
 // I2C Library
 #include <Wire.h>
 #include <vector>
@@ -27,6 +34,20 @@ static boolean doScan = false;
 static BLERemoteCharacteristic* pRemoteCharacteristic;
 static BLEAdvertisedDevice* myDevice;
 
+struct HumiditySensorResponse {
+  float temperature;
+  float humidity;
+
+  HumiditySensorResponse(const HumiditySensorResponse& res) : temperature(res.temperature), humidity(res.humidity) {}
+  HumiditySensorResponse(float temp, float hum) : temperature(temp), humidity(hum) {}
+};
+
+// bool operator==(const HumiditySensorResponse& r1, const HumiditySensorResponse& r2)
+// {
+//   return true;
+//   // return (r1.humidity == r2.humidity) && (r1.temperature == r2.temperature);
+// }
+
 struct I2cResponse {
   float temperature;
   float pressure;
@@ -46,8 +67,9 @@ struct MeteoStationValues {
   float rain;
   std::string windDirection;
   float windSpeed;
+  HumiditySensorResponse humidityRes;
 
-  MeteoStationValues(I2cResponse res, int l, float r, std::string wDir, float wSpeed) : i2cRes(res), light(l), rain(r), windDirection(wDir), windSpeed(wSpeed)  {}
+  MeteoStationValues(I2cResponse resI2C, int l, float r, std::string wDir, float wSpeed, HumiditySensorResponse humRes) : i2cRes(resI2C), light(l), rain(r), windDirection(wDir), windSpeed(wSpeed), humidityRes(humRes)  {}
 
   MeteoStationValues& operator =(const MeteoStationValues& m)
   {
@@ -57,6 +79,8 @@ struct MeteoStationValues {
       rain = m.rain;
       windDirection = m.windDirection;
       windSpeed = m.windSpeed;
+      humidityRes.humidity = m.humidityRes.humidity;
+      humidityRes.temperature = m.humidityRes.temperature;
 
       return *this;
   }
@@ -68,10 +92,12 @@ bool operator==(const MeteoStationValues& m1, const MeteoStationValues& m2)
            (m1.light == m2.light) &&
            (m1.rain == m2.rain) &&
            (m1.windDirection == m2.windDirection) &&
-           (m1.windSpeed == m2.windSpeed);
+           (m1.windSpeed == m2.windSpeed) &&
+           (m1.humidityRes.temperature == m2.humidityRes.temperature) &&
+           (m1.humidityRes.humidity == m2.humidityRes.humidity);
 }
 
-MeteoStationValues lastStationValues(I2cResponse(0, 0), 0, 0, "NORD", 0);
+MeteoStationValues lastStationValues(I2cResponse(0, 0), 0, 0, "NORD", 0, HumiditySensorResponse(0, 0));
 
 static void notifyCallback(
   BLERemoteCharacteristic* pBLERemoteCharacteristic,
@@ -96,7 +122,6 @@ class MyClientCallback : public BLEClientCallbacks {
     Serial.println("onDisconnect");
   }
 };
-
 
 bool connectToServer() {
     Serial.print("Forming a connection to ");
@@ -328,6 +353,57 @@ std::string windDirectionSensor() {
   else                                          return "OTHER";
 }
 
+HumiditySensorResponse humiditySensor() {
+  int i, j;
+  int duree[42];
+  unsigned long pulse;
+  byte data[5];
+  float humidite;
+  float temperature;
+  int broche = 16;
+
+  delay(200);
+  
+  pinMode(broche, OUTPUT_OPEN_DRAIN);
+  digitalWrite(broche, HIGH);
+  delay(250);
+  digitalWrite(broche, LOW);
+  delay(20);
+  digitalWrite(broche, HIGH);
+  delayMicroseconds(40);
+  pinMode(broche, INPUT_PULLUP);
+  
+  while (digitalRead(broche) == HIGH);
+  i = 0;
+
+  do {
+        pulse = pulseIn(broche, HIGH);
+        duree[i] = pulse;
+        i++;
+  } while (pulse != 0);
+ 
+  if (i != 42) 
+    Serial.printf(" Erreur timing \n"); 
+
+  for (i=0; i<5; i++) {
+    data[i] = 0;
+    for (j = ((8*i)+1); j < ((8*i)+9); j++) {
+      data[i] = data[i] * 2;
+      if (duree[j] > 50) {
+        data[i] = data[i] + 1;
+      }
+    }
+  }
+
+  if ( (data[0] + data[1] + data[2] + data[3]) != data[4] ) 
+    Serial.println(" Erreur checksum (HUMIDITY SENSOR)");
+
+  humidite = data[0] + (data[1] / 256.0);
+  temperature = data [2] + (data[3] / 256.0);
+
+  return HumiditySensorResponse(temperature, humidite);
+}
+
 float windSpeedSensor() {
   int last_val = analogRead(WIND_SPEED_PIN);
   int cpt = 0;
@@ -387,8 +463,9 @@ void loop() {
     float rain = rainGauge();
     std::string windDirection = windDirectionSensor();
     float windSpeed = windSpeedSensor();
+    HumiditySensorResponse humRes = humiditySensor();
 
-    MeteoStationValues currStationValues(i2cRes, light, rain, windDirection, windSpeed);
+    MeteoStationValues currStationValues(i2cRes, light, rain, windDirection, windSpeed, humRes);
 
     if(!(lastStationValues == currStationValues)) {
       std::string sendVal = "\nEnsoleillement : " + std::to_string(light) + 
@@ -396,7 +473,9 @@ void loop() {
                             "\nDirection du vent : " + windDirection.c_str() + 
                             "\nVitesse du vent : " + std::to_string(windSpeed) + " km/h" +
                             "\nPressure : " + std::to_string(i2cRes.pressure) + " Pa" + 
-                            "\nTemperature : " + std::to_string(i2cRes.temperature) + " C\n";
+                            "\nTemperature : " + std::to_string(i2cRes.temperature) + " C" +
+                            "\nHumidity : " + std::to_string(humRes.humidity) + " %RH" + 
+                            "\nTemperature : " + std::to_string(humRes.temperature) + " C\n";
     
       pRemoteCharacteristic->writeValue(sendVal.c_str(), sendVal.length());
       lastStationValues = currStationValues;
